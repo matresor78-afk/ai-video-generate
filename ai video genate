@@ -1,0 +1,146 @@
+import os
+import time
+import requests
+from openai import OpenAI
+from elevenlabs.client import ElevenLabs
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips
+
+# ==========================================
+# 1. CONFIGURATION DES ClÉS API
+# ==========================================
+OPENAI_API_KEY = "VOTRE_CLE_OPENAI"
+ELEVENLABS_API_KEY = "VOTRE_CLE_ELEVENLABS"
+RUNWAY_API_KEY = "VOTRE_CLE_RUNWAY_OU_LUMA" # Selon le service d'animation choisi
+
+client_openai = OpenAI(api_key=OPENAI_API_KEY)
+client_elevenlabs = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+
+
+# ==========================================
+# 2. GENERATION DU SCRIPT & DES PROMPTS VISUELS
+# ==========================================
+def generate_story_and_prompts(theme: str):
+    """Génère la voix-off et la liste des prompts d'images/vidéos ultra-détaillés."""
+    prompt = f"""
+    Tu es un réalisateur de cinéma. Crée une scène cinématographique captivante sur le thème: '{theme}'.
+    Retourne au format JSON avec deux clés :
+    1. 'narration': Le texte complet de la voix-off.
+    2. 'prompts': Une liste de 3 prompts visuels ultra-détaillés en anglais pour une IA de génération d'image 4K (style cinéma 35mm, éclairage volumétrique, photoréaliste, 8k resolution, cinematic composition).
+    """
+    
+    response = client_openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"}
+    )
+    
+    import json
+    data = json.loads(response.choices[0].message.content)
+    return data["narration"], data["prompts"]
+
+
+# ==========================================
+# 3. GENERATION DE LA VOIX-OFF (ELEVENLABS)
+# ==========================================
+def generate_audio(text: str, output_path: str = "voiceover.mp3"):
+    """Génère une voix-off cinématographique avec ElevenLabs."""
+    audio_generator = client_elevenlabs.text_to_speech.convert(
+        voice_id="21m00Tcm4TlvDq8ikWAM", # ID de voix par défaut (ex: Rachel / Adam)
+        text=text,
+        model_id="eleven_multilingual_v2"
+    )
+    
+    with open(output_path, "wb") as f:
+        for chunk in audio_generator:
+            f.write(chunk)
+            
+    return output_path
+
+
+# ==========================================
+# 4. GENERATION DE LA VIDEO (API RUNWAY / LUMA / REPLICATE)
+# ==========================================
+def generate_cinematic_clip(prompt: str, index: int) -> str:
+    """
+    Exemple de structure pour appeler une API Text-to-Video (ex: Runway Gen-3 ou Replicate/Flux+SVD).
+    Pour du 4K illimité, adaptez selon l'API sélectionnée.
+    """
+    print(f"Génération du clip {index + 1} avec le prompt : {prompt[:50]}...")
+    
+    # Remarque : Remplacez cet appel par l'API de votre choix (Runway, Luma, Kling, etc.)
+    # Exemple générique via HTTP POST:
+    """
+    headers = {"Authorization": f"Bearer {RUNWAY_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "promptText": prompt,
+        "model": "gen3a_turbo",
+        "ratio": "16:9",
+        "resolution": "4k"
+    }
+    res = requests.post("https://api.runwayml.com/v1/tasks", json=payload, headers=headers)
+    task_id = res.json()["id"]
+    # Atteindre la fin du rendu puis télécharger le .mp4
+    """
+    
+    # Pour la démonstration, chemin du clip téléchargé :
+    clip_output_path = f"clip_{index}.mp4"
+    return clip_output_path
+
+
+# ==========================================
+# 5. MONTAGE & RENDU FINAL EN 4K
+# ==========================================
+def assemble_final_video(video_paths: list, audio_path: str, output_filename: str = "final_movie_4k.mp4"):
+    """Assemble les clips vidéo et la voix-off pour exporter le film final."""
+    clips = [VideoFileClip(path) for path in video_paths]
+    
+    # Concaténation des plans
+    final_clip = concatenate_videoclips(clips, method="compose")
+    
+    # Ajout de l'audio
+    audio = AudioFileClip(audio_path)
+    final_clip = final_clip.set_audio(audio)
+    
+    # Exportation au format 4K (3840x2160)
+    final_clip.write_videofile(
+        output_filename,
+        fps=24,
+        codec="libx264",
+        audio_codec="aac",
+        preset="slow",
+        bitrate="20M" # High bitrate pour préserver la qualité 4K
+    )
+    print(f"Série générée avec succès : {output_filename}")
+
+
+# ==========================================
+# BUCLE PRINCIPALE / AUTOMATISATION ILLIMITÉE
+# ==========================================
+def create_cinematic_series(theme: str, episode_num: int):
+    print(f"--- Début de la production : Épisode {episode_num} ---")
+    
+    # 1. Écriture du script et prompts
+    narration, prompts = generate_story_and_prompts(theme)
+    
+    # 2. Génération Audio
+    audio_file = generate_audio(narration, f"audio_ep{episode_num}.mp3")
+    
+    # 3. Génération Vidéo
+    video_clips = []
+    for i, p in enumerate(prompts):
+        clip_path = generate_cinematic_clip(p, i)
+        video_clips.append(clip_path)
+        
+    # 4. Assemblage
+    # assemble_final_video(video_clips, audio_file, f"Episode_{episode_num}_4K.mp4")
+
+if __name__ == "__main__":
+    # Exemple d'exécution pour créer une série automatique
+    themes_serie = [
+        "L'exploration d'une cité cyberpunk sous la pluie",
+        "La découverte d'un temple ancien sur une planète alien",
+        "Un duel de vaisseaux spatiaux aux confins de la galaxie"
+    ]
+    
+    for ep, theme in enumerate(themes_serie, start=1):
+        create_cinematic_series(theme, episode_num=ep)
